@@ -8,7 +8,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # --- আপনার সঠিক তথ্য ---
 BOT_TOKEN = '8768351131:AAF0jl6MTaBfgg3Ckh_qhKc3w98MAl8GdZE'
-CHAT_ID = '-5371048581'
+CHAT_ID = '-1003729460233'
 PANEL_TOKEN = 'Q1BWRzRSQoBfX5NjVGlih2V3WHZIYGSGQWeFZXWJmH6EYGJKe1-R'
 API_URL = 'http://51.77.216.195/crapi/konek/viewstats'
 

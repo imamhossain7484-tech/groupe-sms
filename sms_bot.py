@@ -1,4 +1,3 @@
-import threading
 import telebot
 import requests
 import time
@@ -7,50 +6,46 @@ import os
 import json
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# ==========================================
-# ১. আগের বটের তথ্য (গ্রুপ ১)
-# ==========================================
-BOT_TOKEN_1 = '8768351131:AAF0jl6MTaBfgg3Ckh_qhKc3w98MAl8GdZE'
-CHAT_ID_1 = '-5371048581'
-PANEL_TOKEN_1 = 'http://51.77.216.195/crapi/konek/viewstats?token=Q1BWRzRSQoBfX5NjVGlih2V3WHZIYGSGQWeFZXWJmH6EYGJKe1-R&records=10'
+# --- আপনার সঠিক তথ্য ---
+BOT_TOKEN = '8768351131:AAF0jl6MTaBfgg3Ckh_qhKc3w98MAl8GdZE'
+CHAT_ID = '-5371048581'
+PANEL_TOKEN = 'Q1BWRzRSQoBfX5NjVGlih2V3WHZIYGSGQWeFZXWJmH6EYGJKe1-R'
+API_URL = 'http://51.77.216.195/crapi/konek/viewstats'
 
-bot1 = telebot.TeleBot(BOT_TOKEN_1)
+# ডুপ্লিকেট মেসেজ আইডি সেভ করার ফাইল
+PROCESSED_DB = 'group_processed.json'
 
-# ডুপ্লিকেট মেসেজ আইডি সেভ করার ফাইল (উভয় বটের জন্য আলাদা ডাটাবেজ)
-PROCESSED_DB_1 = 'group_processed.json'
-PROCESSED_DB_2 = 'new_group_processed.json'
+bot = telebot.TeleBot(BOT_TOKEN)
 
 # --- ডুপ্লিকেট চেক ডাটাবেজ ফাংশন ---
-def load_processed_ids(db_file):
-    if os.path.exists(db_file):
+def load_processed_ids():
+    if os.path.exists(PROCESSED_DB):
         try:
-            with open(db_file, 'r') as f:
+            with open(PROCESSED_DB, 'r') as f:
                 return set(json.load(f))
         except: return set()
     return set()
 
-def save_processed_ids(id_set, db_file):
+def save_processed_ids(id_set):
     try:
         to_save = list(id_set)[-200:]
-        with open(db_file, 'w') as f:
+        with open(PROCESSED_DB, 'w') as f:
             json.dump(to_save, f)
     except: pass
 
-processed_sms_ids_1 = load_processed_ids(PROCESSED_DB_1)
-processed_sms_ids_2 = load_processed_ids(PROCESSED_DB_2)
+processed_sms_ids = load_processed_ids()
 
 def extract_otp(message):
-    """মেসেজ থেকে ওটিপি কোড খুঁজে বের করার লজিক"""
-    match = re.search(r'(?:is|code|:|💬)\s*([a-zA-Z0-9]{4,8})\b', message, re.IGNORECASE)
-    if match:
-        return match.group(1)
-        
+    """মেসেজ থেকে ৪-৮ ডিজিট অথবা ৪-৮ অক্ষরের ইংরেজি টেক্সট OTP খুঁজে বের করার লজিক"""
+    # প্রথমে মেসেজের একদম শেষের শব্দটি চেক করবে (যেমন স্ক্রিনশটের mfvhn)
     words = message.strip().split()
     if words:
-        last_word = words[-1].strip('.,!:-')
+        last_word = words[-1]
+        # শেষের শব্দটি যদি ৪ থেকে ৮ অক্ষরের হয়, তবে সেটাকেই ওটিপি হিসেবে নিবে
         if 4 <= len(last_word) <= 8:
             return last_word
             
+    # যদি শেষের শব্দে না পায়, তবে পুরো মেসেজে ৪-৮ অক্ষরের যেকোনো কোড (সংখ্যা বা অক্ষর) খুঁজবে
     otp_match = re.search(r'\b[a-zA-Z0-9]{4,8}\b', message)
     return otp_match.group(0) if otp_match else "No OTP"
 
@@ -63,56 +58,54 @@ def format_number(num):
         return f"{first_three}NB{last_three}"
     return clean_num
 
-# ==========================================
-# ৩. আগের বটের ফরোয়ার্ড লুপ (Thread 1)
-# ==========================================
-def run_bot_1_loop():
-    global processed_sms_ids_1
-    print("🚀 Bot 1 (Old) Forwarder Loop Started...")
+def fetch_and_forward():
+    global processed_sms_ids
+    try:
+        response = requests.get(f"{API_URL}?token={PANEL_TOKEN}", timeout=10)
+        if response.status_code == 200:
+            full_data = response.json()
+            if full_data.get('status') == 'success':
+                sms_list = full_data.get('data', [])
+                if isinstance(sms_list, list):
+                    for sms in reversed(sms_list):
+                        num = str(sms.get('num', 'Unknown')).strip()
+                        sms_time = sms.get('dt', '')
+                        
+                        msg_unique_id = f"{num}_{sms_time}"
+                        
+                        if msg_unique_id not in processed_sms_ids:
+                            msg_content = sms.get('message', 'No message')
+                            otp = extract_otp(msg_content)
+                            
+                            # সার্ভিস নেম এবং নম্বর ফরম্যাট
+                            masked_service = "*******"
+                            masked_number = format_number(num)
+                            
+                            # লেআউট ডিজাইন
+                            text = (
+                                f"🌐 <b>{masked_service}</b>\n"
+                                f"📞 {masked_number}\n\n"
+                                f"💬 <code>{otp}</code>"
+                            )
+
+                            # শুধু ওনার বাটন
+                            markup = InlineKeyboardMarkup()
+                            markup.row(
+                                InlineKeyboardButton("👤 Owner", url="https://t.me/nb269")
+                            )
+
+                            try:
+                                bot.send_message(CHAT_ID, text, parse_mode='HTML', reply_markup=markup)
+                                processed_sms_ids.add(msg_unique_id)
+                                save_processed_ids(processed_sms_ids)
+                            except Exception as send_error:
+                                print(f"Sending Error: {send_error}")
+                                            
+    except Exception as e:
+        print(f"Fetch Error: {e}")
+
+if __name__ == "__main__":
+    print("বটটি টেক্সট এবং ডিজিট উভয় প্রকার ওটিপি সাপোর্ট সহ চালু হচ্ছে...")
     while True:
-        try:
-            response = requests.get(f"{API_URL_1}?token={PANEL_TOKEN_1}&records=10", timeout=10)
-            if response.status_code == 200:
-                full_data = response.json()
-                if full_data.get('status') == 'success':
-                    sms_list = full_data.get('data', [])
-                    if isinstance(sms_list, list):
-                        for sms in sms_list:
-                            num = str(sms.get('num', 'Unknown')).strip()
-                            sms_time = sms.get('dt', '')
-                            
-                            msg_unique_id = f"{num}_{sms_time}"
-                            
-                            if msg_unique_id not in processed_sms_ids_1:
-                                msg_content = sms.get('message', 'No message')
-                                otp = extract_otp(msg_content)
-                                
-                                service_name = sms.get('service') or sms.get('cli') or 'Unknown'
-                                service_name = str(service_name).strip()
-                                
-                                masked_number = format_number(num)
-                                
-                                text = (
-                                    f"🎯 <b>SMS RECEIVED IN YOUR NUMBER!</b>\n\n"
-                                    f"👤 <b>Number:</b> <code>{masked_number}</code>\n"
-                                    f"🏢 <b>Service:</b> <code>{service_name}</code>\n"
-                                    f"💬 <b>Message:</b> {msg_content}\n\n"
-                                    f"🔑 <b>Code:</b> <code>{otp}</code>"
-                                )
-
-                                markup = InlineKeyboardMarkup()
-                                markup.row(
-                                    InlineKeyboardButton("👤 developer", url="https://t.me/nb269")
-                                )
-
-                                try:
-                                    bot1.send_message(CHAT_ID_1, text, parse_mode='HTML', reply_markup=markup)
-                                    processed_sms_ids_1.add(msg_unique_id)
-                                    save_processed_ids(processed_sms_ids_1, PROCESSED_DB_1)
-                                    print(f"[Bot 1] Successfully forwarded OTP for {masked_number}")
-                                    time.sleep(1)
-                                except Exception as send_error:
-                                    print(f"[Bot 1] Sending Error: {send_error}")
-        except Exception as e:
-            print(f"[Bot 1] Fetch Error: {e}")
-        time.sleep(5)  # আপনার আগের ৪ সেকেন্ডের ডিলে
+        fetch_and_forward()
+        time.sleep(4)

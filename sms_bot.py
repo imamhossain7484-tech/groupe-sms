@@ -115,4 +115,4 @@ def run_bot_1_loop():
                                     print(f"[Bot 1] Sending Error: {send_error}")
         except Exception as e:
             print(f"[Bot 1] Fetch Error: {e}")
-        time.sleep(4)  # আপনার আগের ৪ সেকেন্ডের ডিলে
+        time.sleep(5)  # আপনার আগের ৪ সেকেন্ডের ডিলে
